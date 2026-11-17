@@ -1,6 +1,6 @@
-# Solana AI Trading Desk — Plan de développement (Phase 0)
+# Solana AI Trading Desk — Plan de développement (v2, « mesure d'abord »)
 
-Date : 17 novembre 2026 · Statut : **en attente de validation opérateur** · Aucun code applicatif n'a été écrit.
+Date : 17 novembre 2026 · Version 2 — **« mesure d'abord »** (réorganisation validée par l'opérateur le 17/11/2026) · Aucun code applicatif n'a été écrit.
 
 ---
 
@@ -21,7 +21,7 @@ Outillage disponible dans l'environnement de développement : Python 3.13, Node 
 
 ## 2. Points du cahier des charges à corriger ou préciser
 
-Ces points doivent être tranchés avant ou pendant la Phase 1. Chacun a une proposition par défaut.
+Ces points doivent être tranchés avant ou pendant l'étape M1. Chacun a une proposition par défaut.
 
 1. **Taille de position vs. perte journalière.** Position max 10 € > perte journalière max 3 % × 300 € = 9 €. Un seul rug (perte ≈ 100 %, fréquent sur meme coins, le stop -15 % ne protège pas d'un gap) dépasse la limite journalière.
    *Proposition :* la taille de position est plafonnée par `min(position_max, perte_journalière_restante)` ; risque budgété par trade calculé en supposant une perte possible de 100 % du montant engagé, pas 15 %.
@@ -44,6 +44,8 @@ Ces points doivent être tranchés avant ou pendant la Phase 1. Chacun a une pro
 ### 3.1 Processus
 
 Un seul paquet Python (`backend/`), plusieurs points d'entrée exécutés dans des conteneurs distincts, communiquant par Redis Streams (groupes de consommateurs) et PostgreSQL (source de vérité).
+
+> **Pendant la phase de mesure (§4)**, tout tourne dans un seul processus asyncio avec PostgreSQL, sans signer ni wallet. L'architecture ci-dessous est la cible, atteinte à l'étape G2.
 
 ```
                  ┌──────────────┐
@@ -119,59 +121,104 @@ Un seul paquet Python (`backend/`), plusieurs points d'entrée exécutés dans d
 
 ---
 
-## 4. Plan de développement par phases
+## 4. Plan de développement — version « mesure d'abord »
 
-Chaque phase se termine par le rapport demandé (fichiers, fonctionnalités, tests et résultats, dépendances, problèmes, reste à faire). Pas de passage à la phase suivante avec une erreur critique ouverte.
+**Principe :** on construit d'abord le minimum qui répond à une seule question : **existe-t-il un avantage net de tous les frais ?** Le reste n'est construit que si la réponse est oui. L'ordre du cahier des charges change (décision de l'opérateur du 17/11/2026). Son contenu reste la cible finale.
 
-### Phase 1 — Fondations
-- `pyproject.toml` (gestionnaire `uv`), `ruff`, `mypy --strict`, `pytest`, `pytest-asyncio`.
+### 4.1 Ce qui est reporté, et pourquoi
+
+| Élément du cahier des charges | Pendant la mesure | Arrive à l'étape |
+|---|---|---|
+| Dashboard Next.js (6 pages) | Rapport en ligne de commande + fichier HTML statique | G3 |
+| Grok / sentiment | Absent : le score fonctionne sans sentiment (90 points) | G1, en test A/B |
+| Exécution réelle, signer, wallet, `/execute` | Absente : aucun wallet de trading n'existe | G2 |
+| Redis + processus séparés | Un seul processus asyncio + PostgreSQL, suffisant pour ce volume | G2 |
+| API FastAPI complète | Réduite à `/health` | G3 |
+| Yellowstone gRPC | Interface seulement | Si un jour nécessaire |
+
+### 4.2 Étapes de mesure (M1 à M5)
+
+**M1 — Socle minimal**
+- `pyproject.toml` (uv), `ruff`, `mypy --strict`, `pytest`.
 - Configuration typée, logs structurés avec masquage des secrets.
-- Modèles SQLAlchemy + migrations Alembic de toutes les tables (§4.4).
-- FastAPI : `/health/live`, `/health/ready` (PG, Redis, fraîcheur du flux).
-- Docker Compose : `postgres`, `redis`, `api`, `ingestor`, `analyzer`, `trader` ; profil `live` pour `signer`.
-- Kill switch persistant (modèle + API + tests).
-- **Critère de sortie :** `docker compose up` démarre, health checks verts, migrations montantes/descendantes testées, CI locale verte.
+- PostgreSQL + Alembic avec les tables nécessaires à la mesure : `tokens`, `pools`, `raw_events`, `token_snapshots`, `security_analyses`, `token_scores`, `agent_decisions`, `positions`, `trades`, `portfolio_snapshots`, `system_events`, `config_versions`. Montants en entiers (unités de base) ou `Decimal`.
+- Docker Compose (`postgres` + `app`), endpoint `/health`, ping healthchecks.io, alertes Telegram.
+- *Sortie :* `docker compose up` démarre ; migrations montantes et descendantes testées ; tests et typage verts.
 
-### Phase 2 — Blockchain et scanner
-- Client RPC + reconnexion/backoff, rate limiting.
-- `HeliusWebSocketProvider` (logs des programmes pump.fun / PumpSwap), `ReplayProvider`, interface Yellowstone (stub documenté).
-- Décodage création de token, création/migration de pool, trades.
-- Déduplication, `raw_events` append-only, métadonnées (Metaplex / extension metadata Token-2022).
-- **Mesure du volume de données sur 1 h** pour chiffrer la consommation de crédits Helius (§7).
-- **Enregistrement continu des événements dès la fin de cette phase** → constitution du jeu de données de backtest pendant le développement des phases suivantes.
-- **Critère de sortie :** scanner stable 24 h, taux de doublons nul, reconnexions testées, détection mesurée (latence création → détection).
+**M2 — Collecte et enregistrement**
+- Interface `MarketDataProvider`.
+  - `PumpPortalProvider` : nouveaux tokens, migrations, trades des tokens suivis.
+  - `HeliusWebSocketProvider` : secours et vérification.
+  - `ReplayProvider` : rejoue les événements enregistrés.
+- `raw_events` en ajout seul, déduplication, reconnexion avec backoff, détection de flux interrompu.
+- Snapshots de l'état de la courbe ou du pool pour chaque token suivi.
+- Mesures : volume de données, crédits Helius consommés, délai entre création et détection.
+- *Sortie :* 72 h sur le VPS sans trou non détecté, zéro doublon, coupure réseau simulée et rattrapée.
+- **Ensuite, l'enregistrement tourne en continu.** Ces données servent à toute la suite : plus tôt il démarre, plus tôt on peut conclure.
 
-### Phase 3 — Analyse et sécurité
-- Parsing mint/autorités, extensions Token-2022 (critiques : `PermanentDelegate`, `TransferHook` non listé, `NonTransferable`, `DefaultAccountState=Frozen`, `Pausable` avec autorité, `TransferFee` au-dessus du seuil ; autorités mint/freeze actives).
-- Concentration des holders, wallets liés au créateur (financement commun, achats dans le même slot / bundles), acheteurs/vendeurs uniques, volume « réel » (exclusion wash trading simple).
-- Liquidité et profondeur (impact de prix pour la taille visée, calculé sur les réserves).
-- Classification de risque ; toute donnée manquante est un `warning` explicite, jamais une valeur par défaut silencieuse.
-- **Critère de sortie :** chaque token découvert reçoit une analyse horodatée ; jeux de tests avec cas de rug / honeypot construits à partir d'événements enregistrés.
+**M3 — Sécurité et indicateurs**
+- Relecture on-chain via Helius de tout ce qui sert à décider :
+  - autorités mint/freeze, extensions Token-2022 ;
+  - top holders, wallet du créateur ;
+  - achats groupés dans le slot de création, wallets récents ou financés par une même source ;
+  - flux acheteurs/vendeurs, progression de la courbe ;
+  - impact de prix pour la taille visée.
+- RugCheck en second avis (optionnel ; son indisponibilité ne bloque rien).
+- Score déterministe sans sentiment ; chaque composante est conservée.
+- Tests sur des événements réels enregistrés, y compris des cas de rug et de honeypot.
+- *Sortie :* chaque token suivi reçoit une analyse horodatée ; toute donnée manquante est explicitement signalée.
 
-### Phase 4 — Grok
-- Client xAI (Responses API, outil serveur X Search si disponible sur le modèle choisi), structured outputs en mode strict, validation Pydantic, timeouts, retry, budget journalier d'appels, cache par token.
-- Règles de prompt : pas de chiffres non sourcés, `evidence` obligatoire, confiance basse si sources insuffisantes ; validation Python (bornes, cohérence evidence/confiance).
-- **Critère de sortie :** tests avec réponses enregistrées (y compris réponses invalides / hallucinées rejetées), test d'intégration réel optionnel, coût par analyse mesuré.
+**M4 — Moteur paper et stratégies**
+- Stratégies A (momentum confirmé), B (repli après graduation) et C (témoin aléatoire), chacune sous une version de configuration, exécutées en parallèle sur les mêmes événements.
+- Risk Manager avec les mêmes limites que celles prévues pour le réel.
+- Modèle de fill conservateur :
+  - prix = le pire entre le calcul sur les réserves au slot T + délai et la cotation Jupiter (`/order` sans wallet) ;
+  - plus les frais du protocole, les frais Jupiter, le rent, le pourboire et le slippage ;
+  - échecs d'exécution simulés.
+- Position Manager : prises de profit, stop, trailing, stagnation, durée max, sorties de sécurité. Tout est évalué sur le prix de vente exécutable.
+- **Étiquetage des issues :** pour chaque token qui passe la sécurité, on enregistre le prix max et min et l'état (gradué ou mort) à 5, 15, 30 et 60 minutes, qu'il ait été « acheté » ou non. On peut ainsi tester d'autres règles hors ligne sur tous les candidats, sans attendre de nouveaux trades.
+- *Sortie :* les trois stratégies tournent 7 jours sans erreur ; PnL vérifié à la main sur un échantillon de trades.
 
-### Phase 5 — Moteur de trading
-- Scoring (6 composantes conservées séparément), Strategist (seuils configurables, rejet si risque critique).
-- Risk Manager (toutes les limites du §4.6 du cahier des charges + gate flux sain + kill switch).
-- Position Manager (TP1/TP2/trailing/stop/temps/sécurité, gestion des tokens invendables, fermeture d'ATA).
-- Adaptateur Jupiter Swap API V2 (`/order`, `/execute`), `PaperExecution`, `JupiterLiveExecution` isolé, réconciliation.
-- **Critère de sortie :** paper trading de bout en bout sur flux réel ; tests des scénarios de trading (§15 du cahier des charges) via `ReplayProvider`. **Démarrage de l'horloge des 30 jours d'observation.**
+**M5 — Rapport de mesure et rejeu**
+- Rapport (ligne de commande + HTML statique) :
+  - espérance nette par trade avec intervalle de confiance (bootstrap) ;
+  - profit factor, drawdown, frais et slippage moyens ;
+  - performance par tranche de score, par heure et par stratégie ;
+  - écart avec le témoin C ;
+  - PnL net d'infrastructure.
+- Rejeu des événements enregistrés pour tester une variante de paramètres, uniquement sur la période d'apprentissage.
+- Résumé hebdomadaire automatique sur Telegram.
+- *Sortie :* rapport reproductible à partir de la seule base de données.
 
-### Phase 6 — Dashboard
-- Next.js (App Router) + TypeScript + Tailwind + Recharts ; pages Overview, Live Scanner, Positions, Agents, History, Settings.
-- Temps réel via SSE ; bandeau permanent PAPER / LIVE avec couleurs distinctes ; authentification.
-- **Critère de sortie :** toutes les pages alimentées par l'API réelle, tests de composants et un test e2e Playwright.
+### 4.3 Point de décision
 
-### Phase 7 — Validation
-- Backtests sur les événements enregistrés, rapports KPI (§16 du cahier des charges, y compris performance par score / type / tranche horaire, et PnL net d'infrastructure).
-- Tests de sécurité (accès secrets, signature non autorisée, transaction malformée, double exécution, expiration, coupure réseau).
-- Rapport automatique des critères de passage au réel (300 trades, 30 jours, espérance > 0, profit factor > 1,3, drawdown < 10 %, etc.).
-- Documentation : README, ARCHITECTURE, API, SECURITY, TRADING_STRATEGY, DEPLOYMENT, TESTING.
+Il a lieu après **au moins 3 à 4 semaines de collecte et au moins 100 trades simulés par stratégie**. Les 30 derniers % de la période sont réservés à la validation : on ne règle aucun paramètre dessus.
 
-**Chemin critique :** les 30 jours de paper trading ne commencent qu'à la fin de la Phase 5. Les phases 6 et 7 se développent pendant cette période d'observation. Le passage au réel est au plus tôt ~30 jours après la Phase 5, et seulement sur décision explicite de l'opérateur.
+| Décision | Condition |
+|---|---|
+| **GO** | La stratégie A ou B remplit toutes les conditions : espérance nette > 0 avec borne basse de l'intervalle de confiance à 95 % > 0 ; profit factor > 1,3 ; drawdown < 10 % ; nettement meilleure que le témoin C ; confirmée sur la période réservée ; gains projetés supérieurs aux coûts d'infrastructure |
+| **PROLONGER** (une seule fois) | Résultats positifs mais pas significatifs : 2 à 4 semaines de plus, sans toucher aux paramètres |
+| **STOP** | Tous les autres cas. Le coût est limité à 1–2 mois d'infrastructure ; le code et les données sont conservés |
+
+### 4.4 Si GO : construction du reste
+
+- **G1 — Grok (optionnel).** Module sentiment testé en A/B sur les données ; conservé seulement s'il améliore les résultats.
+- **G2 — Exécution réelle isolée.**
+  - Signer séparé, Jupiter `/order` + `/execute`, réconciliation on-chain, kill switch persistant.
+  - Séparation en processus + Redis.
+  - Tests de sécurité : signature non autorisée, double exécution, transaction expirée, coupure réseau.
+- **G3 — Dashboard et API.** Next.js, API complète, authentification, distinction visible paper / réel.
+- **G4 — Validation finale.** Au moins 300 trades et 30 jours au total (la période de mesure compte), scénarios de panne, documentation complète.
+- **G5 — Réel progressif.** Autorisation explicite de l'opérateur, positions réduites au départ (3 à 5 €), retour au paper immédiat à tout moment.
+
+### 4.5 Budget et garde-fous du projet
+
+- **Coût pendant la mesure :** ~10–20 €/mois (VPS + Helius Free + PumpPortal ; pas de xAI, pas de capital engagé).
+- **Plafond proposé :** 300 € au total (infrastructure + éventuelles pertes réelles) et décision GO/STOP au plus tard 3 mois après le démarrage de M2. À confirmer par l'opérateur.
+- **Effort estimé :** les étapes M1 à M5 représentent environ un tiers du projet complet.
+- **Prérequis :**
+  - M2 : un VPS (l'enregistreur doit tourner 24 h/24, cet environnement de développement est temporaire), une clé Helius Free, une clé PumpPortal avec un wallet jetable de 0,02 SOL ;
+  - M4 : une clé Jupiter gratuite.
 
 ---
 
@@ -220,7 +267,7 @@ Chaque `agent_decisions` et `token_scores` référence la `config_versions` util
 | Jupiter | 0 $ | 0 $ | plan payant éventuel |
 | **Total approx.** | **15–35 €** | **~80–130 €** | **~550–650 €** |
 
-**Inconnue majeure :** le volume du flux pump.fun. Si l'abonnement aux logs des programmes pump.fun génère plusieurs dizaines de Go par jour, la consommation dépasse le quota Developer (10 M crédits ≈ 500 Go streamés/mois au tarif de 20 crédits/Mo, avant les appels RPC). La Phase 2 inclut une mesure d'une heure pour trancher. Alternatives : filtrage plus fin (abonnement aux seules transactions de création, puis suivi ciblé des tokens retenus) ou fournisseur de découverte tiers, derrière la même interface.
+**Inconnue majeure :** le volume du flux pump.fun. Si l'abonnement aux logs des programmes pump.fun génère plusieurs dizaines de Go par jour, la consommation dépasse le quota Developer (10 M crédits ≈ 500 Go streamés/mois au tarif de 20 crédits/Mo, avant les appels RPC). L'étape M2 inclut une mesure d'une heure pour trancher. Alternatives : filtrage plus fin (abonnement aux seules transactions de création, puis suivi ciblé des tokens retenus) ou fournisseur de découverte tiers, derrière la même interface.
 
 **Conséquence économique :** avec 150 € de capital de trading et ~100 €/mois d'infrastructure, la stratégie devrait produire plus de 60 % par mois uniquement pour couvrir ses coûts. La phase de paper trading doit être considérée comme de la R&D ; l'évaluation finale doit inclure le PnL net d'infrastructure, et le capital ou le budget sont peut-être à revoir.
 
@@ -228,10 +275,10 @@ Chaque `agent_decisions` et `token_scores` référence la `config_versions` util
 
 ## 8. Risques et dépendances bloquantes
 
-### Bloquants (avant implémentation des phases concernées)
-1. **Clé API Helius** (Phase 2) — Free suffit pour développer, Developer probablement nécessaire pour le flux continu.
-2. **Clé API Jupiter** (Phase 5) — gratuite.
-3. **Clé API xAI** et confirmation qu'un modèle disposant de X Search est accessible sur le compte (Phase 4).
+### Bloquants (avant les étapes concernées)
+1. **Clé API Helius** (étape M2) — Free suffit pour développer, Developer probablement nécessaire pour le flux continu.
+2. **Clé API Jupiter** (étape M4, cotations) — gratuite.
+3. **Clé API xAI** et confirmation qu'un modèle disposant de X Search est accessible sur le compte (étape G1, seulement si GO).
 4. **Accès réseau sortant** de l'environnement de développement vers `*.helius-rpc.com`, `api.jup.ag`, `api.x.ai` pour les tests d'intégration (à configurer si bloqué).
 5. **Décisions opérateur** listées au §9.
 
@@ -239,7 +286,7 @@ Chaque `agent_decisions` et `token_scores` référence la `config_versions` util
 - **Concurrence et latence :** les snipers professionnels opèrent en intra-slot avec bundles ; un bot WebSocket + Jupiter a des latences de centaines de ms à quelques secondes. La stratégie « confirmations avant entrée » est adaptée, mais l'avantage statistique reste à démontrer.
 - **Base rate :** la grande majorité des nouveaux meme coins perd l'essentiel de sa valeur ; les rugs et coordinations de wallets évoluent plus vite que les heuristiques.
 - **Évolution des programmes** pump.fun / PumpSwap (frais, instructions, Token-2022) : décodeurs versionnés et alertes sur instructions inconnues.
-- **Couverture Jupiter** des tokens en phase de bonding curve : à vérifier en Phase 5 ; un adaptateur d'exécution direct sur la courbe pourrait être nécessaire (derrière l'interface `ExecutionEngine`).
+- **Couverture Jupiter** des tokens en phase de bonding curve : à vérifier en étape M4 ; un adaptateur d'exécution direct sur la courbe pourrait être nécessaire (derrière l'interface `ExecutionEngine`).
 - **Fiabilité de Grok :** latence, coût, hallucinations, données X rares pour les tokens très récents → poids limité (10), validation stricte, jamais de chemin direct vers une transaction.
 - **Biais des backtests :** impossibilité de rejouer les cotations historiques de Jupiter ; le modèle de fill sur réserves de courbe atténue ce biais sans le supprimer.
 - **Fiscalité / conformité (France) :** conserver un historique exportable de toutes les opérations réelles ; non traité techniquement au-delà de l'export.
@@ -248,12 +295,14 @@ Chaque `agent_decisions` et `token_scores` référence la `config_versions` util
 
 ## 9. Décisions demandées à l'opérateur
 
-1. **Budget infra** : accepter ~80–130 €/mois (Helius Developer) ou commencer en Free + mesure avant d'acheter ?
-2. **Périmètre DEX v1** : pump.fun bonding curve + PumpSwap uniquement (recommandé), autres launchpads plus tard ?
-3. **Règle de taille de position** : adopter la proposition du §2.1 (plafond par la perte journalière restante, risque = 100 % du montant engagé) ?
-4. **Sentiment** : autoriser une entrée sans résultat Grok (composante neutre) ou exiger son résultat ?
-5. **Hébergement cible** : VPS (quelle région) ou machine locale ?
-6. **Langue** : code et identifiants en anglais, documentation en français ?
-7. **Accès au dashboard** : local / VPN uniquement + authentification (recommandé) ?
+Validé le 17/11/2026 : réorganisation « mesure d'abord » (§4).
 
-Après validation, la Phase 1 commence et s'achève par son rapport de livraison.
+Encore à décider avant M1 ou M2 :
+
+1. **Plafond du projet** : 300 € au total et 3 mois pour atteindre la décision GO/STOP (§4.5) ?
+2. **Stack à moindre coût** de `docs/TOOLING_AND_STRATEGY.md` (PumpPortal + Helius Free + Jupiter) ? Adoptée par défaut pour la mesure.
+3. **VPS** : fournisseur et région (Francfort ou Amsterdam recommandés). Nécessaire dès M2.
+4. **Clés** : Helius Free et PumpPortal pour M2, Jupiter pour M4. Elles ne doivent jamais être collées dans le chat : elles iront dans un fichier `.env` local non versionné ou dans les réglages de l'environnement.
+5. **Langue** : code en anglais, documentation en français ?
+
+Après validation, l'étape M1 commence et se termine par son rapport de livraison.
