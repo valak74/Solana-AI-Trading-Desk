@@ -177,6 +177,8 @@ Chaque phase se termine par le rapport demandé (fichiers, fonctionnalités, tes
 
 ## 5. API, abonnements et dépendances externes
 
+> **Mise à jour :** une stack à moindre coût (~15–35 €/mois) est proposée dans `docs/TOOLING_AND_STRATEGY.md`. Elle ajoute PumpPortal pour la découverte et RugCheck en second avis, commence en Helius Free et rend Grok optionnel. Le tableau ci-dessous reste la référence des offres disponibles.
+
 | Service | Usage | Offre minimale | Remarques |
 |---|---|---|---|
 | **Helius RPC + WebSocket** | Découverte, données on-chain, simulation, confirmation | Free pour démarrer ; **Developer (~49 $/mois)** recommandé | Free : 1 M crédits, 10 req/s, 5 connexions WS. Developer : 10 M crédits, 50 req/s. Le streaming est facturé au volume (≈ 20 crédits/Mo). `transactionSubscribe` à partir de Developer (à confirmer dans le tableau de bord) |
@@ -207,6 +209,8 @@ Chaque `agent_decisions` et `token_scores` référence la `config_versions` util
 ---
 
 ## 7. Estimation des coûts d'infrastructure (mensuels, indicatifs)
+
+> **Mise à jour :** avec la stack de `docs/TOOLING_AND_STRATEGY.md` §2.6, le scénario minimal tombe à ~15–35 €/mois (~60–85 € si Helius Developer devient nécessaire). Les règles de trading proposées sont au §3 de ce même document.
 
 | Poste | Minimal (paper) | Recommandé | Basse latence |
 |---|---|---|---|
