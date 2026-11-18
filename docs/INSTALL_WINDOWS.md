@@ -103,6 +103,7 @@ Puis ouvrir `http://127.0.0.1:8000/health/ready` dans un navigateur :
 | Statistiques horaires | `docker compose exec postgres psql -U desk -d desk -c "select created_at, payload from system_events where event_type='ingest_stats' order by id desc limit 3"` |
 | Kill switch (bloquer les entrées) | `docker compose exec app python -m backend.risk.kill_switch on --reason "..."` (puis `off`) |
 | Positions paper | `docker compose exec postgres psql -U desk -d desk -c "select strategy, exit_reason, realized_pnl_lamports from positions order by id desc limit 20"` |
+| Rapport de mesure (HTML) | `docker compose exec app python -m backend.reporting --html /tmp/rapport.html` puis `docker compose cp app:/tmp/rapport.html .` |
 | Coupures enregistrées | `docker compose exec postgres psql -U desk -d desk -c "select * from feed_gaps order by id desc limit 10"` |
 
 **Ne jamais lancer `docker compose down -v`** : l'option `-v` efface la base de données, donc toutes les données enregistrées.

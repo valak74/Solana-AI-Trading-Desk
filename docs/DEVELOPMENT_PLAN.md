@@ -193,6 +193,7 @@ Un seul paquet Python (`backend/`), plusieurs points d'entrée exécutés dans d
 - Rejeu des événements enregistrés pour tester une variante de paramètres, uniquement sur la période d'apprentissage.
 - Résumé hebdomadaire automatique sur Telegram.
 - *Sortie :* rapport reproductible à partir de la seule base de données.
+- *Réalisé (18/11/2026) :* rapport texte et HTML, verdict automatique selon §4.3, résumé hebdomadaire Telegram, rejeu de variantes arrêté par défaut avant la période réservée (voir `docs/MEASUREMENT.md`). **Tout le code de la phase de mesure est écrit et testé ; la mesure elle-même commence au lancement sur la machine d'exécution.**
 
 ### 4.3 Point de décision
 

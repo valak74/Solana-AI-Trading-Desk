@@ -28,6 +28,8 @@ from backend.monitoring.alerts import Alerter, LogOnlyAlerter, TelegramAlerter
 from backend.monitoring.heartbeat import Heartbeat
 from backend.monitoring.logging import configure_logging, get_logger
 from backend.monitoring.readiness import ReadinessProbe, database_checks, expected_schema_head
+from backend.reporting.report import ReportConfig
+from backend.reporting.service import WeeklySummary
 from backend.risk.manager import RiskManager
 from backend.scanner.providers.pumpportal import PumpPortalProvider
 from backend.scanner.service import IngestService
@@ -188,6 +190,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tasks.append(asyncio.create_task(analysis.run()))
         if ingest is not None:
             tasks.append(asyncio.create_task(OutcomeLabeler(factory).run()))
+            if settings.weekly_summary_enabled:
+                report_config = ReportConfig(
+                    sol_eur=settings.report_sol_eur, monthly_infra_eur=settings.report_infra_eur
+                )
+                weekly = WeeklySummary(factory, alerter, report_config)
+                tasks.append(asyncio.create_task(weekly.run()))
         await record_system_event(factory, "service_started", Severity.INFO, payload)
         await alerter.send(
             Severity.INFO, "Trading desk démarré", f"mode={payload['execution_mode']}"

@@ -1,5 +1,6 @@
 """Typed application settings, loaded from environment variables and an optional .env file."""
 
+from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
 from typing import Literal, Self
@@ -87,6 +88,11 @@ class Settings(BaseSettings):
     paper_tick_seconds: float = Field(default=2.0, gt=0)
     jupiter_api_key: SecretStr | None = None  # quotes only; needed for strategy B
     jupiter_base_url: str = "https://api.jup.ag/swap/v2"
+
+    # --- Reporting (step M5) -------------------------------------------------------------
+    report_sol_eur: Decimal = Decimal(150)  # conversion used in reports and weekly summaries
+    report_infra_eur: Decimal = Decimal(15)  # monthly infrastructure cost to beat
+    weekly_summary_enabled: bool = True
 
     @field_validator("execution_mode")
     @classmethod

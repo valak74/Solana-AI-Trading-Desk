@@ -74,6 +74,18 @@ Sans `TEST_DATABASE_URL`, ils sont ignorés (signalés « skipped »).
 | Moteur | Cycle complet TP1 → TP2 → trailing avec **PnL vérifié à l'unité** (cash = capital + PnL) ; stop exécuté au prix **après** la latence ; vente du créateur ; kill switch ; achat raté = coût enregistré ; token gradué sans cotation ; reprise après redémarrage ; **rejeu déterministe** ; instantanés de portefeuille |
 | Base de données (intégration) | Position, trades (rent payé puis remboursé), décisions et instantané persistés ; PnL = ventes nettes − coût ; redémarrage → position « interrompue » au PnL vide et capital reconstruit ; kill switch persistant, **illisible = actif** ; étiquettes d'issues (fenêtres, rendements, coupures) idempotentes |
 
+## Couverture ajoutée à l'étape M5
+
+| Domaine | Ce qui est vérifié |
+|---|---|
+| Statistiques | Bootstrap reproductible encadrant la vraie moyenne ; différence entre deux groupes (nette ou nulle) ; profit factor (dont aucune perte) ; drawdown ; achats échoués comptés comme coûts mais pas comme trades |
+| Verdict | GO seulement si **tous** les critères sont remplis ; égalité avec le témoin → non GO ; stratégie perdante → STOP ; coût d'infrastructure trop élevé → non GO ; données insuffisantes ; **période réservée vide → non GO** |
+| Rapport | Exclusions (coupure, redémarrage), séparation apprentissage/réservée, répartitions, courbe cumulée, issues par classement (coupures exclues), rendu texte/HTML honnête et **échappé** (pas d'injection) |
+| Rejeu (intégration) | Signaux reconstruits depuis les analyses stockées ; marché enregistré rejoué → position et PnL ; rapport du rejeu ; **deux rejeux identiques** ; arrêt au début de la période réservée ; configuration partielle fusionnée |
+| Résumé hebdomadaire (intégration) | Envoyé une seule fois par semaine, journalisé |
+
+Vérification visuelle (18/11/2026) : rapport HTML d'exemple capturé en thème clair et sombre ; aucun débordement horizontal sur mobile (390 px).
+
 ## Vérifications manuelles réalisées (17/11/2026, Docker Compose)
 
 - `docker compose up` : migration appliquée, conteneur `healthy`, `/health/ready` = 200.
