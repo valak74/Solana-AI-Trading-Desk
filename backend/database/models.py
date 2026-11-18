@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -129,6 +130,12 @@ class RawEvent(Base):
     __table_args__ = (
         Index("ix_raw_events_type_received", "event_type", "received_at"),
         Index("ix_raw_events_received_at", "received_at"),
+        Index(
+            "ix_raw_events_trade_mint",
+            text("(payload ->> 'mint')"),
+            "received_at",
+            postgresql_where=text("event_type = 'trade'"),
+        ),
     )
 
 
@@ -172,10 +179,12 @@ class SecurityAnalysis(Base):
     critical_flags: Mapped[list[Any]] = mapped_column(default=list)
     warnings: Mapped[list[Any]] = mapped_column(default=list)
     missing_data: Mapped[list[Any]] = mapped_column(default=list)
+    metrics: Mapped[dict[str, Any]] = mapped_column(default=dict)  # raw measured values
     created_at: Mapped[datetime] = _utcnow_column()
 
     __table_args__ = (
         CheckConstraint("security_score >= 0 AND security_score <= 100", name="score_range"),
+        Index("ix_security_analyses_token_created", "token_id", "created_at"),
     )
 
 
@@ -192,6 +201,7 @@ class TokenScore(Base):
     volume_score: Mapped[Decimal] = mapped_column(SCORE)
     sentiment_score: Mapped[Decimal | None] = mapped_column(SCORE)  # absent while measuring
     total_score: Mapped[Decimal] = mapped_column(SCORE)
+    features: Mapped[dict[str, Any]] = mapped_column(default=dict)  # inputs and band
     created_at: Mapped[datetime] = _utcnow_column()
 
     __table_args__ = (

@@ -49,6 +49,19 @@ Sans `TEST_DATABASE_URL`, ils sont ignorés (signalés « skipped »).
 | Service (intégration) | Rejeu complet → base + alertes de coupure ; base indisponible → données gardées et réessayées, une seule alerte ; période de grâce de la santé du flux |
 | Bout en bout (intégration) | Application complète + faux serveur PumpPortal : token reçu → abonnement à ses trades → token en base → `/health/ready` avec `feed: true` |
 
+## Couverture ajoutée à l'étape M3
+
+| Domaine | Ce qui est vérifié |
+|---|---|
+| Comptes on-chain | Mint SPL et Token-2022 (format `jsonParsed`), extensions ; rejet des comptes absents, mal typés ou détenus par un autre programme ; courbe pump.fun décodée, **courbe falsifiée (mauvais propriétaire) rejetée**, valeurs incohérentes rejetées |
+| Calcul de la courbe | Impact d'entrée croissant avec la taille ; aller-retour immédiat = frais seulement (vérifié et documenté) |
+| Règles de sécurité | Autorités actives, chaque extension Token-2022 (dont l'inconnue → critique), frais de transfert, concentration, créateur vendeur ou en série, lancement groupé, wallets coordonnés, RugCheck, donnée manquante → risque élevé |
+| Collecte on-chain | Exclusion de la courbe dans les holders et regroupement par wallet ; origine des fonds (instructions directes et internes) ; wallets récents ou anciens (pas de crédit dépensé pour les anciens) ; activité du bloc de création, pagination et historique trop long → donnée manquante |
+| Flux et score | Indicateurs de trades, accélération, wash trading ; rampes ; sentiment exclu et renormalisé ; composante manquante = 0 ; bandes |
+| Moteur | Token sain → analyse approfondie et bon score ; risque critique → **pas de crédit dépensé** sur l'étage 2 ; mint illisible → jamais considéré sûr ; wallets coordonnés détectés ; budget épuisé → arrêt sans résultat partiel |
+| Budget de crédits | Débit par méthode, remise à zéro quotidienne, **aucune requête envoyée** une fois le budget atteint |
+| Service (intégration) | Analyse enregistrée et traçable (version des règles, indicateurs, décisions des agents) ; fenêtre d'âge et activité minimale respectées ; pas de réanalyse trop rapprochée ; **lecture des trades sans jamais regarder le futur** ; budget épuisé signalé une seule fois |
+
 ## Vérifications manuelles réalisées (17/11/2026, Docker Compose)
 
 - `docker compose up` : migration appliquée, conteneur `healthy`, `/health/ready` = 200.
@@ -66,3 +79,10 @@ PumpPortal n'est pas joignable depuis l'environnement de développement, ce qui 
 - aucune coupure fictive enregistrée sans donnée reçue.
 
 **Non vérifié à ce jour : la connexion au vrai flux PumpPortal et le format réel de ses messages.** À faire avec `python -m backend.scanner.probe` sur la machine d'exécution (voir `docs/INSTALL_WINDOWS.md`).
+
+## Vérifications manuelles réalisées (18/11/2026, Docker Compose, analyse activée)
+
+- Base vierge : les trois migrations s'appliquent dans l'ordre sur PostgreSQL 16.
+- Service démarré avec ingestion et analyse actives ; version des règles `analysis-v1` enregistrée.
+- Clés API factices (PumpPortal, Helius) absentes des logs.
+- Limite : la construction complète de l'image a été bloquée par une limite de débit de Docker Hub (HTTP 429). Le nouveau code a été vérifié en surcouche de l'image précédente, qui a les mêmes dépendances.

@@ -2,7 +2,7 @@
 
 Système de recherche et de trading sur les nouveaux tokens Solana (pump.fun), construit en mode **« mesure d'abord »** : on vérifie qu'un avantage net de frais existe avant de construire l'exécution réelle.
 
-> **État actuel : étape M2 (enregistrement des tokens), code terminé et testé localement ; validation sur flux réel à faire. Aucune fonction de trading, aucun wallet.** Seul le mode `paper` est accepté par la configuration. Aucun résultat simulé ne doit être présenté comme un gain réel.
+> **État actuel : étapes M2 (enregistrement) et M3 (analyse de sécurité et score) terminées et testées localement ; validation sur données réelles à faire. Aucune fonction de trading, aucun wallet.** Seul le mode `paper` est accepté par la configuration. Aucun résultat simulé ne doit être présenté comme un gain réel.
 
 ## Documents
 
@@ -12,6 +12,7 @@ Système de recherche et de trading sur les nouveaux tokens Solana (pump.fun), c
 | [`docs/TOOLING_AND_STRATEGY.md`](docs/TOOLING_AND_STRATEGY.md) | Outils à moindre coût, stratégies A/B/C, règles de sortie et de risque |
 | [`docs/TESTING.md`](docs/TESTING.md) | Lancer les tests et les contrôles qualité |
 | [`docs/INSTALL_WINDOWS.md`](docs/INSTALL_WINDOWS.md) | Installation sur un PC Windows 11 pour la phase de mesure |
+| [`docs/ANALYSIS.md`](docs/ANALYSIS.md) | Règles de sécurité, score d'opportunité, budget de crédits, limites |
 
 ## Démarrage avec Docker (VPS ou poste local)
 

@@ -169,6 +169,7 @@ Un seul paquet Python (`backend/`), plusieurs points d'entrée exécutés dans d
 - Score déterministe sans sentiment ; chaque composante est conservée.
 - Tests sur des événements réels enregistrés, y compris des cas de rug et de honeypot.
 - *Sortie :* chaque token suivi reçoit une analyse horodatée ; toute donnée manquante est explicitement signalée.
+- *Réalisé (18/11/2026) :* analyse en deux étages pour économiser les crédits, avec un budget journalier partagé (voir `docs/ANALYSIS.md`). L'analyse porte sur les tokens assez actifs (15 trades ou plus entre 3 et 30 min), pas sur tous les tokens suivis : c'est ce qui permet de rester dans l'offre gratuite de Helius. Défaut corrigé dans M2 : la date de première détection vient désormais du message reçu (indispensable pour les rejeux).
 
 **M4 — Moteur paper et stratégies**
 - Stratégies A (momentum confirmé), B (repli après graduation) et C (témoin aléatoire), chacune sous une version de configuration, exécutées en parallèle sur les mêmes événements.

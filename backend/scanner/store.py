@@ -75,7 +75,7 @@ class IngestStore:
     async def _upsert_tokens(session: AsyncSession, rows: list[dict[str, Any]]) -> None:
         if not rows:
             return
-        columns = ("mint_address", *_TOKEN_METADATA)
+        columns = ("mint_address", "first_seen_at", *_TOKEN_METADATA)
         normalized = [{c: row.get(c) for c in columns} for row in rows]
         for chunk in _chunks(normalized):
             stmt = insert(Token).values(chunk)
@@ -84,7 +84,8 @@ class IngestStore:
                 index_elements=["mint_address"],
                 set_={
                     c: func.coalesce(getattr(Token, c), stmt.excluded[c]) for c in _TOKEN_METADATA
-                },
+                }
+                | {"first_seen_at": func.least(Token.first_seen_at, stmt.excluded.first_seen_at)},
             )
             await session.execute(stmt)
 
@@ -105,6 +106,7 @@ class IngestStore:
                 "address": row["address"],
                 "program_id": row["program_id"],
                 "kind": PoolKind(row["kind"]),
+                "first_seen_at": row["first_seen_at"],
             }
             for row in batch.pools.values()
             if row["mint"] in ids

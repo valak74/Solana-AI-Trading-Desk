@@ -69,6 +69,17 @@ class Settings(BaseSettings):
     helius_rpc_url: str = "https://mainnet.helius-rpc.com"
     verify_sample_rate: float = Field(default=0.02, ge=0, le=1)
     verify_max_rps: float = Field(default=2.0, gt=0)
+    helius_daily_credit_budget: int = Field(default=25_000, ge=0)
+
+    # --- Analysis (step M3) --------------------------------------------------------------
+    analysis_enabled: bool = True  # effective only with ingestion and a Helius key
+    analysis_interval_seconds: float = Field(default=20.0, gt=0)
+    analysis_min_age_minutes: float = Field(default=3.0, ge=0)
+    analysis_max_age_minutes: float = Field(default=30.0, gt=0)
+    analysis_reanalyze_minutes: float = Field(default=10.0, gt=0)
+    analysis_min_trades: int = Field(default=15, ge=0)
+    analysis_batch: int = Field(default=10, ge=1)
+    rugcheck_enabled: bool = False
 
     @field_validator("execution_mode")
     @classmethod

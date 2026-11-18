@@ -83,6 +83,7 @@ async def test_trade_before_creation_metadata_filled_later(session_factory: Fact
         token = (await session.execute(select(Token))).scalar_one()
     assert token.name == "Test Coin"
     assert token.status is TokenStatus.DISCOVERED
+    assert token.first_seen_at == T0  # earliest sighting kept, not the creation message time
 
 
 async def test_gap_opened_and_closed_across_batches(session_factory: Factory) -> None:

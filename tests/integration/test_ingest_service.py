@@ -122,3 +122,20 @@ async def test_app_end_to_end_with_local_fake_feed(
             await fake.to_send.put(None)
     subscribed = [m for m in fake.received if m.get("method") == "subscribeTokenTrade"]
     assert subscribed[0]["keys"] == [mint(7)]
+
+
+async def test_app_starts_with_analysis_enabled(database_url: str) -> None:
+    app = create_app(
+        settings(
+            database_url,
+            ingest_enabled=True,
+            pumpportal_ws_url="ws://127.0.0.1:1",  # nothing listens: ingestion keeps retrying
+            helius_api_key=SecretStr("dummy"),
+            helius_rpc_url="http://127.0.0.1:1",
+            analysis_interval_seconds=0.05,
+        )
+    )
+    async with app.router.lifespan_context(app):
+        analysis = app.state.analysis
+        assert analysis is not None
+        await wait_until(lambda: analysis.analyzed == 0 and analysis._config_id is not None)

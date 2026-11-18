@@ -68,10 +68,10 @@ Ce fichier contient vos secrets : il n'est jamais envoyé sur GitHub (`.gitignor
 
 ```powershell
 docker compose build
-docker compose run --rm --no-deps app python -m backend.scanner.probe --seconds 60
+docker compose run --rm --no-deps app python -m backend.scanner.probe --seconds 60 --onchain 3
 ```
 
-Le résultat affiche le nombre de messages reçus par type et les noms des champs vus. Il ne contient aucun secret : **envoyez-le-moi**. Il permet de vérifier que le format réel des messages correspond à ce que le code attend. La documentation PumpPortal n'était pas accessible depuis l'environnement de développement.
+Le résultat affiche le nombre de messages reçus par type, les noms des champs vus, et le décodage on-chain de 3 nouveaux tokens (environ 6 crédits Helius). Il ne contient aucun secret : **envoyez-le-moi**. Il permet de vérifier que le format réel des messages correspond à ce que le code attend. La documentation PumpPortal n'était pas accessible depuis l'environnement de développement.
 
 ## 7. Lancer l'enregistrement
 

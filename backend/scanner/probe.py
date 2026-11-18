@@ -1,10 +1,14 @@
 """Connection test for the PumpPortal feed, to run once on the operator's machine.
 
-    python -m backend.scanner.probe --seconds 60
+    python -m backend.scanner.probe --seconds 60 --onchain 3
 
 Connects with the configured API key, listens without touching the database, and prints what
 was received: message counts per type, parse failures, the field names seen for each type, and
 any server control messages. It validates the message format assumed by the parser.
+
+With ``--onchain N`` (needs HELIUS_API_KEY, about 2 credits per token), it also reads the mint
+and bonding-curve accounts of N new tokens and prints how they decode, which validates the
+on-chain layouts assumed by the security analysis.
 """
 
 import argparse
@@ -13,14 +17,57 @@ import json
 from collections import Counter, defaultdict
 from typing import Any
 
-from backend.config import get_settings
+import httpx
+
+from backend.blockchain.accounts import AccountDecodeError, parse_bonding_curve, parse_mint
+from backend.config import Settings, get_settings
+from backend.integrations.helius import CreditBudget, HeliusRpc, RpcError
 from backend.monitoring.logging import configure_logging
 from backend.scanner.messages import MessageError, event_type_of, parse_message
 from backend.scanner.providers.base import ConnectionStatus, RawMessage
 from backend.scanner.providers.pumpportal import PumpPortalProvider
 
 
-async def probe(seconds: float, track_first: int) -> dict[str, Any]:
+async def decode_onchain(settings: Settings, tokens: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    """Read and decode mint + bonding curve accounts of a few live tokens."""
+    if settings.helius_api_key is None:
+        return [{"error": "HELIUS_API_KEY not set"}]
+    results: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=15) as client:
+        rpc = HeliusRpc(
+            client,
+            settings.helius_rpc_url,
+            settings.helius_api_key.get_secret_value(),
+            CreditBudget(50),
+        )
+        for mint_address, curve_address in tokens:
+            entry: dict[str, Any] = {"mint": mint_address}
+            try:
+                mint = parse_mint(await rpc.get_account_info(mint_address))
+                entry["mint_program"] = "token-2022" if mint.is_token_2022 else "spl-token"
+                entry["decimals"] = mint.decimals
+                entry["mint_authority_revoked"] = mint.mint_authority is None
+                entry["freeze_authority_revoked"] = mint.freeze_authority is None
+                entry["extensions"] = [e.name for e in mint.extensions]
+            except (RpcError, httpx.HTTPError, AccountDecodeError) as exc:
+                entry["mint_error"] = f"{type(exc).__name__}: {exc}"
+            try:
+                curve = parse_bonding_curve(await rpc.get_account_info(curve_address, "base64"))
+                entry["curve"] = {
+                    "virtual_sol": curve.virtual_sol_reserves,
+                    "virtual_tokens": curve.virtual_token_reserves,
+                    "real_sol": curve.real_sol_reserves,
+                    "real_tokens": curve.real_token_reserves,
+                    "total_supply": curve.token_total_supply,
+                    "complete": curve.complete,
+                }
+            except (RpcError, httpx.HTTPError, AccountDecodeError) as exc:
+                entry["curve_error"] = f"{type(exc).__name__}: {exc}"
+            results.append(entry)
+    return results
+
+
+async def probe(seconds: float, track_first: int, onchain: int = 0) -> dict[str, Any]:
     settings = get_settings()
     key = settings.pumpportal_api_key.get_secret_value() if settings.pumpportal_api_key else None
     provider = PumpPortalProvider(settings.pumpportal_ws_url, key)
@@ -29,6 +76,7 @@ async def probe(seconds: float, track_first: int) -> dict[str, Any]:
     controls: list[str] = []
     connections: list[str] = []
     tracked = 0
+    created: list[tuple[str, str]] = []
 
     async def listen() -> None:
         nonlocal tracked
@@ -48,6 +96,9 @@ async def probe(seconds: float, track_first: int) -> dict[str, Any]:
             if kind == "control":
                 controls.append(str(item.payload)[:300])
             mint = item.payload.get("mint")
+            curve = item.payload.get("bondingCurveKey")
+            if kind == "token_created" and isinstance(mint, str) and isinstance(curve, str):
+                created.append((mint, curve))
             if kind == "token_created" and tracked < track_first and isinstance(mint, str):
                 await provider.track([mint])
                 tracked += 1
@@ -66,6 +117,7 @@ async def probe(seconds: float, track_first: int) -> dict[str, Any]:
         "fields_by_type": {k: sorted(v) for k, v in fields.items()},
         "control_messages": controls[:10],
         "tokens_tracked_for_trades": tracked,
+        "onchain_decoding": await decode_onchain(settings, created[:onchain]) if onchain else [],
     }
 
 
@@ -73,10 +125,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="PumpPortal feed connection test")
     parser.add_argument("--seconds", type=float, default=60.0)
     parser.add_argument("--track", type=int, default=5, help="new tokens to follow for trades")
+    parser.add_argument("--onchain", type=int, default=0, help="new tokens to decode on-chain")
     args = parser.parse_args()
     settings = get_settings()
     configure_logging("WARNING", "console", settings.secret_values())
-    report = asyncio.run(probe(args.seconds, args.track))
+    report = asyncio.run(probe(args.seconds, args.track, args.onchain))
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 

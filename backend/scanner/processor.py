@@ -182,6 +182,7 @@ class IngestProcessor:
         is_pump = event.pool == "pump"
         self.batch.tokens[event.mint] = {
             "mint_address": event.mint,
+            "first_seen_at": msg.received_at,
             "creator_wallet": event.creator,
             "name": event.name,
             "symbol": event.symbol,
@@ -195,6 +196,7 @@ class IngestProcessor:
                 "address": event.bonding_curve,
                 "program_id": PUMP_FUN_PROGRAM_ID,
                 "kind": "bonding_curve",
+                "first_seen_at": msg.received_at,
             }
         result = HandleResult(verify=self._maybe_verify(msg, "token_created", event))
         if event.pool in self._tracked_pools and self.registry.on_created(
@@ -206,8 +208,12 @@ class IngestProcessor:
         )
         return result
 
+    def _minimal_token(self, mint: str, seen_at: datetime) -> None:
+        """Token known only from a trade/migration (its creation was missed)."""
+        self.batch.tokens.setdefault(mint, {"mint_address": mint, "first_seen_at": seen_at})
+
     def _on_trade(self, event: TradeObserved, msg: RawMessage) -> HandleResult:
-        self.batch.tokens.setdefault(event.mint, {"mint_address": event.mint})
+        self._minimal_token(event.mint, msg.received_at)
         state = self._mints.setdefault(event.mint, _MintState())
         if event.side is TradeSide.BUY:
             state.buys += 1
@@ -218,7 +224,7 @@ class IngestProcessor:
         return HandleResult(verify=self._maybe_verify(msg, "trade", event))
 
     def _on_migrated(self, event: PoolMigrated, msg: RawMessage) -> HandleResult:
-        self.batch.tokens.setdefault(event.mint, {"mint_address": event.mint})
+        self._minimal_token(event.mint, msg.received_at)
         self.batch.graduated.add(event.mint)
         result = HandleResult()
         if self.registry.on_migrated(event.mint, msg.received_at):

@@ -4,17 +4,22 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 
 import httpx
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.analysis.engine import TokenAnalyzer
+from backend.analysis.repository import AnalysisRepository
+from backend.analysis.service import AnalysisService
 from backend.api.health import router as health_router
 from backend.config import Settings, get_settings
 from backend.database.enums import Severity
 from backend.database.session import create_engine, create_session_factory
 from backend.database.system_events import record_system_event
-from backend.integrations.helius import HeliusRpc
+from backend.integrations.helius import CreditBudget, HeliusRpc
+from backend.integrations.rugcheck import RugCheckClient
 from backend.monitoring.alerts import Alerter, LogOnlyAlerter, TelegramAlerter
 from backend.monitoring.heartbeat import Heartbeat
 from backend.monitoring.logging import configure_logging, get_logger
@@ -23,6 +28,7 @@ from backend.scanner.providers.pumpportal import PumpPortalProvider
 from backend.scanner.service import IngestService
 from backend.scanner.store import IngestStore
 from backend.scanner.verifier import SampleVerifier
+from backend.security.config import AnalysisConfig
 
 log = get_logger(__name__)
 
@@ -37,21 +43,57 @@ def build_alerter(settings: Settings, client: httpx.AsyncClient) -> Alerter:
     return LogOnlyAlerter()
 
 
+def build_rpc(settings: Settings, client: httpx.AsyncClient) -> HeliusRpc | None:
+    """One RPC client and one credit budget shared by every component."""
+    if settings.helius_api_key is None:
+        return None
+    budget = CreditBudget(settings.helius_daily_credit_budget)
+    return HeliusRpc(
+        client, settings.helius_rpc_url, settings.helius_api_key.get_secret_value(), budget
+    )
+
+
 def build_ingest(
     settings: Settings,
     factory: async_sessionmaker[AsyncSession],
-    client: httpx.AsyncClient,
     alerter: Alerter,
+    rpc: HeliusRpc | None,
 ) -> IngestService:
     key = settings.pumpportal_api_key
     provider = PumpPortalProvider(
         settings.pumpportal_ws_url, key.get_secret_value() if key else None
     )
     verifier = None
-    if settings.helius_api_key is not None and settings.verify_sample_rate > 0:
-        rpc = HeliusRpc(client, settings.helius_rpc_url, settings.helius_api_key.get_secret_value())
+    if rpc is not None and settings.verify_sample_rate > 0:
         verifier = SampleVerifier(rpc, factory, max_rps=settings.verify_max_rps)
     return IngestService(settings, provider, IngestStore(factory), factory, alerter, verifier)
+
+
+def build_analysis(
+    settings: Settings,
+    factory: async_sessionmaker[AsyncSession],
+    client: httpx.AsyncClient,
+    alerter: Alerter,
+    rpc: HeliusRpc,
+) -> AnalysisService:
+    config = AnalysisConfig()
+    rugcheck = RugCheckClient(client) if settings.rugcheck_enabled else None
+    if rpc.budget is None:
+        raise ValueError("the analysis requires an RPC client with a credit budget")
+    return AnalysisService(
+        TokenAnalyzer(rpc, config, rugcheck),
+        AnalysisRepository(factory),
+        factory,
+        config,
+        rpc.budget,
+        alerter,
+        interval=settings.analysis_interval_seconds,
+        min_age=timedelta(minutes=settings.analysis_min_age_minutes),
+        max_age=timedelta(minutes=settings.analysis_max_age_minutes),
+        reanalyze_after=timedelta(minutes=settings.analysis_reanalyze_minutes),
+        min_trades=settings.analysis_min_trades,
+        batch=settings.analysis_batch,
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -65,10 +107,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
         alerter = build_alerter(settings, client)
         checks = database_checks(engine, expected_schema_head())
+        rpc = build_rpc(settings, client)
         ingest: IngestService | None = None
+        analysis: AnalysisService | None = None
         if settings.ingest_enabled:
-            ingest = build_ingest(settings, factory, client, alerter)
+            ingest = build_ingest(settings, factory, alerter, rpc)
             service = ingest
+            if settings.analysis_enabled and rpc is not None:
+                analysis = build_analysis(settings, factory, client, alerter, rpc)
 
             async def feed_ready() -> bool:
                 return service.feed_ready()
@@ -77,6 +123,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         probe = ReadinessProbe(checks)
         app.state.readiness = probe
         app.state.ingest = ingest
+        app.state.analysis = analysis
 
         tasks: list[asyncio.Task[None]] = []
         if settings.healthchecks_ping_url is not None:
@@ -89,9 +136,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "execution_mode": settings.execution_mode.value,
             "env": settings.app_env,
             "ingest_enabled": settings.ingest_enabled,
+            "analysis_enabled": analysis is not None,
         }
         if ingest is not None:
             await ingest.start()
+        if analysis is not None:
+            tasks.append(asyncio.create_task(analysis.run()))
         await record_system_event(factory, "service_started", Severity.INFO, payload)
         await alerter.send(
             Severity.INFO, "Trading desk démarré", f"mode={payload['execution_mode']}"

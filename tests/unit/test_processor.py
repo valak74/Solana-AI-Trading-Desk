@@ -68,7 +68,7 @@ def test_snapshots_are_throttled_per_token() -> None:
 def test_trade_for_unknown_token_creates_minimal_row() -> None:
     p = processor()
     p.handle(raw(trade_msg(mint(9), sig(9))))
-    assert p.take_batch().tokens[mint(9)] == {"mint_address": mint(9)}
+    assert p.take_batch().tokens[mint(9)] == {"mint_address": mint(9), "first_seen_at": T0}
 
 
 def test_migration_marks_graduated_and_subscribes() -> None:
