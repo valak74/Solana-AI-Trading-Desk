@@ -49,6 +49,27 @@ class Settings(BaseSettings):
     healthchecks_ping_url: SecretStr | None = None
     heartbeat_interval_seconds: float = Field(default=60.0, gt=0)
 
+    # --- Ingestion (step M2) -------------------------------------------------------------
+    ingest_enabled: bool = False
+    pumpportal_ws_url: str = "wss://pumpportal.fun/api/data"
+    pumpportal_api_key: SecretStr | None = None
+    tracked_pools: tuple[str, ...] = ("pump",)
+
+    track_window_minutes: float = Field(default=60.0, gt=0)
+    track_migrated_window_minutes: float = Field(default=360.0, gt=0)
+    track_min_trades: int = Field(default=5, ge=0)
+    track_min_trades_window_minutes: float = Field(default=10.0, gt=0)
+    max_tracked_tokens: int = Field(default=2000, ge=1)
+
+    feed_stale_after_seconds: float = Field(default=60.0, gt=0)
+    snapshot_min_interval_seconds: float = Field(default=5.0, ge=0)
+    ingest_stats_interval_seconds: float = Field(default=3600.0, gt=0)
+
+    helius_api_key: SecretStr | None = None
+    helius_rpc_url: str = "https://mainnet.helius-rpc.com"
+    verify_sample_rate: float = Field(default=0.02, ge=0, le=1)
+    verify_max_rps: float = Field(default=2.0, gt=0)
+
     @field_validator("execution_mode")
     @classmethod
     def _reject_live_mode(cls, value: ExecutionMode) -> ExecutionMode:
@@ -73,7 +94,13 @@ class Settings(BaseSettings):
 
     def secret_values(self) -> list[str]:
         """Plain values of every configured secret, used by the log redactor."""
-        secrets = [self.database_url, self.telegram_bot_token, self.healthchecks_ping_url]
+        secrets = [
+            self.database_url,
+            self.telegram_bot_token,
+            self.healthchecks_ping_url,
+            self.pumpportal_api_key,
+            self.helius_api_key,
+        ]
         return [s.get_secret_value() for s in secrets if s is not None and s.get_secret_value()]
 
 

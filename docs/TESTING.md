@@ -34,9 +34,35 @@ Sans `TEST_DATABASE_URL`, ils sont ignorés (signalés « skipped »).
 | Base de données | Migration descendante puis montante ; **modèles strictement identiques aux migrations** ; prix `Decimal` et montants 2⁶⁴−1 exacts ; déduplication des événements bruts ; statuts invalides, quantités négatives et `remaining > quantity` rejetés par la base |
 | Service | Cycle démarrage/arrêt enregistré dans `system_events` ; non prêt si la base est injoignable |
 
+## Couverture ajoutée à l'étape M2
+
+| Domaine | Ce qui est vérifié |
+|---|---|
+| Messages PumpPortal | Nombres lus en `Decimal` (jamais `float`), conversion exacte en lamports et unités brutes, arrondi bancaire, champs optionnels absents, identifiants invalides rejetés, messages de contrôle et inconnus |
+| Déduplication | Clé indépendante de l'ordre des champs, deux trades d'une même transaction distincts, mémoire bornée |
+| Suivi des tokens | Fenêtre de 60 min, abandon des tokens inactifs, limite de capacité comptée, suivi prolongé après migration |
+| Coupures de flux | Début de coupure au dernier message reçu, fin au premier message suivant, déconnexion, arrêt du PC (coupure « service_down »), pas de fausse coupure avant la première donnée |
+| Traitement | Lignes produites (événement brut, token, pool, snapshot), doublons, limitation des snapshots, token inconnu, migration, autres launchpads non suivis, échantillonnage de vérification |
+| Client PumpPortal | Contre un faux serveur WebSocket local : abonnements, clé dans l'URL, réabonnement après reconnexion, message illisible conservé, **clé jamais écrite dans les logs** |
+| Helius / vérification | Requête `getTransaction`, transaction absente, erreurs HTTP/RPC sans fuite de clé, succès/échec de transaction, présence du mint, délai de détection, nouvelles tentatives |
+| Base de données (intégration) | Lot complet persisté, réécriture des mêmes événements sans doublon, métadonnées complétées après coup, coupure ouverte puis fermée sur deux lots, montants `Decimal` conservés exactement dans le JSON |
+| Service (intégration) | Rejeu complet → base + alertes de coupure ; base indisponible → données gardées et réessayées, une seule alerte ; période de grâce de la santé du flux |
+| Bout en bout (intégration) | Application complète + faux serveur PumpPortal : token reçu → abonnement à ses trades → token en base → `/health/ready` avec `feed: true` |
+
 ## Vérifications manuelles réalisées (17/11/2026, Docker Compose)
 
 - `docker compose up` : migration appliquée, conteneur `healthy`, `/health/ready` = 200.
 - Arrêt de PostgreSQL : `/health/ready` passe à 503 ; redémarrage : retour à 200 sans relancer l'application.
 - Mot de passe de la base absent des logs du conteneur.
 - `EXECUTION_MODE=live` : le service refuse de démarrer.
+
+## Vérifications manuelles réalisées (18/11/2026, Docker Compose, ingestion activée)
+
+PumpPortal n'est pas joignable depuis l'environnement de développement, ce qui a permis de tester le cas d'échec :
+
+- reconnexions avec délais croissants, sans plantage ;
+- clé API factice absente des logs ;
+- `/health/ready` à 503 avec `feed: false`, ce qui couperait le ping healthchecks.io ;
+- aucune coupure fictive enregistrée sans donnée reçue.
+
+**Non vérifié à ce jour : la connexion au vrai flux PumpPortal et le format réel de ses messages.** À faire avec `python -m backend.scanner.probe` sur la machine d'exécution (voir `docs/INSTALL_WINDOWS.md`).

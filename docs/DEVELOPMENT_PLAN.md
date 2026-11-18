@@ -154,6 +154,7 @@ Un seul paquet Python (`backend/`), plusieurs points d'entrée exécutés dans d
 - **Périodes de coupure** (PC éteint, réseau perdu, fournisseur en panne) enregistrées avec leur début et leur fin. Elles sont exclues de l'évaluation. Une position paper ouverte pendant une coupure est clôturée au pire prix observé à la reprise : une coupure ne peut jamais améliorer les résultats.
 - Snapshots de l'état de la courbe ou du pool pour chaque token suivi.
 - Mesures : volume de données, crédits Helius consommés, délai entre création et détection.
+- *Réalisé (18/11/2026) :* le flux WebSocket Helius est remplacé à ce stade par une **vérification on-chain par échantillonnage** via la RPC Helius (`getTransaction` sur 2 % des événements). Elle mesure la fiabilité de PumpPortal et le délai de détection, pour un coût en crédits négligeable. Le décodage complet des logs pump.fun via Helius est reporté à M3, où les comptes on-chain seront lus de toute façon.
 - *Sortie :* 72 h sur la machine d'exécution sans trou non détecté, zéro doublon, coupure réseau simulée et rattrapée.
 - **Ensuite, l'enregistrement tourne en continu.** Ces données servent à toute la suite : plus tôt il démarre, plus tôt on peut conclure.
 

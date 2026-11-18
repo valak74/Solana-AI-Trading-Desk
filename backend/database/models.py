@@ -10,6 +10,7 @@ from typing import Any, ClassVar
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -125,7 +126,10 @@ class RawEvent(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     payload: Mapped[dict[str, Any]]
 
-    __table_args__ = (Index("ix_raw_events_type_received", "event_type", "received_at"),)
+    __table_args__ = (
+        Index("ix_raw_events_type_received", "event_type", "received_at"),
+        Index("ix_raw_events_received_at", "received_at"),
+    )
 
 
 class TokenSnapshot(Base):
@@ -304,3 +308,41 @@ class SystemEvent(Base):
     created_at: Mapped[datetime] = _utcnow_column()
 
     __table_args__ = (Index("ix_system_events_type_created", "event_type", "created_at"),)
+
+
+class FeedGap(Base):
+    """Interval without data from a provider. Excluded from strategy evaluation."""
+
+    __tablename__ = "feed_gaps"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    source: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str] = mapped_column(String(128))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_feed_gaps_source_started", "source", "started_at"),
+        CheckConstraint("ended_at IS NULL OR ended_at >= started_at", name="ordered"),
+    )
+
+
+class VerificationSample(Base):
+    """On-chain cross-check of a sampled provider event (existence, success, latency)."""
+
+    __tablename__ = "verification_samples"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    source: Mapped[str] = mapped_column(String(32))
+    event_type: Mapped[str] = mapped_column(String(64))
+    signature: Mapped[str] = mapped_column(SIGNATURE, index=True)
+    mint: Mapped[str] = mapped_column(PUBKEY)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    found: Mapped[bool] = mapped_column(Boolean)
+    tx_succeeded: Mapped[bool | None] = mapped_column(Boolean)
+    mint_present: Mapped[bool | None] = mapped_column(Boolean)
+    slot: Mapped[int | None] = mapped_column(BigInteger)
+    block_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    detection_latency_ms: Mapped[int | None] = mapped_column(BigInteger)
+    error: Mapped[str | None] = mapped_column(String(256))

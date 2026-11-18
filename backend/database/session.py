@@ -1,7 +1,11 @@
 """Async engine and session factory."""
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -12,8 +16,23 @@ from sqlalchemy.ext.asyncio import (
 )
 
 
+def _json_default(value: Any) -> str:
+    # Decimals are stored as strings to keep every digit (JSON numbers would go through float).
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    raise TypeError(f"not JSON serializable: {type(value).__name__}")
+
+
+def json_dumps(value: Any) -> str:
+    return json.dumps(value, default=_json_default)
+
+
 def create_engine(database_url: str, pool_size: int = 5) -> AsyncEngine:
-    return create_async_engine(database_url, pool_size=pool_size, pool_pre_ping=True)
+    return create_async_engine(
+        database_url, pool_size=pool_size, pool_pre_ping=True, json_serializer=json_dumps
+    )
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
