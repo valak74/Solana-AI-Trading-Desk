@@ -151,9 +151,10 @@ Un seul paquet Python (`backend/`), plusieurs points d'entrée exécutés dans d
   - `HeliusWebSocketProvider` : secours et vérification.
   - `ReplayProvider` : rejoue les événements enregistrés.
 - `raw_events` en ajout seul, déduplication, reconnexion avec backoff, détection de flux interrompu.
+- **Périodes de coupure** (PC éteint, réseau perdu, fournisseur en panne) enregistrées avec leur début et leur fin. Elles sont exclues de l'évaluation. Une position paper ouverte pendant une coupure est clôturée au pire prix observé à la reprise : une coupure ne peut jamais améliorer les résultats.
 - Snapshots de l'état de la courbe ou du pool pour chaque token suivi.
 - Mesures : volume de données, crédits Helius consommés, délai entre création et détection.
-- *Sortie :* 72 h sur le VPS sans trou non détecté, zéro doublon, coupure réseau simulée et rattrapée.
+- *Sortie :* 72 h sur la machine d'exécution sans trou non détecté, zéro doublon, coupure réseau simulée et rattrapée.
 - **Ensuite, l'enregistrement tourne en continu.** Ces données servent à toute la suite : plus tôt il démarre, plus tôt on peut conclure.
 
 **M3 — Sécurité et indicateurs**
@@ -213,11 +214,11 @@ Il a lieu après **au moins 3 à 4 semaines de collecte et au moins 100 trades s
 
 ### 4.5 Budget et garde-fous du projet
 
-- **Coût pendant la mesure :** ~10–20 €/mois (VPS + Helius Free + PumpPortal ; pas de xAI, pas de capital engagé).
+- **Coût pendant la mesure :** ~10–20 €/mois avec un VPS, ou seulement l'électricité avec un PC local (~2–3 €/mois pour un portable, ~10 € pour un PC fixe). Helius Free + PumpPortal ; pas de xAI, pas de capital engagé.
 - **Plafond proposé :** 300 € au total (infrastructure + éventuelles pertes réelles) et décision GO/STOP au plus tard 3 mois après le démarrage de M2. À confirmer par l'opérateur.
 - **Effort estimé :** les étapes M1 à M5 représentent environ un tiers du projet complet.
 - **Prérequis :**
-  - M2 : un VPS (l'enregistreur doit tourner 24 h/24, cet environnement de développement est temporaire), une clé Helius Free, une clé PumpPortal avec un wallet jetable de 0,02 SOL ;
+  - M2 : une machine allumée en continu, **PC local accepté pour la mesure** (aucun argent en jeu) ou VPS ; cet environnement de développement est temporaire. Plus une clé Helius Free, une clé PumpPortal avec un wallet jetable de 0,02 SOL ;
   - M4 : une clé Jupiter gratuite.
 
 ---
@@ -301,7 +302,7 @@ Encore à décider avant M1 ou M2 :
 
 1. **Plafond du projet** : 300 € au total et 3 mois pour atteindre la décision GO/STOP (§4.5) ?
 2. **Stack à moindre coût** de `docs/TOOLING_AND_STRATEGY.md` (PumpPortal + Helius Free + Jupiter) ? Adoptée par défaut pour la mesure.
-3. **VPS** : fournisseur et région (Francfort ou Amsterdam recommandés). Nécessaire dès M2.
+3. **Machine d'exécution** : PC local pour la mesure (M2–M5). **Avant tout passage en réel (G2), migration obligatoire** vers un VPS ou une machine dédiée : la clé du wallet ne doit pas vivre sur un PC personnel.
 4. **Clés** : Helius Free et PumpPortal pour M2, Jupiter pour M4. Elles ne doivent jamais être collées dans le chat : elles iront dans un fichier `.env` local non versionné ou dans les réglages de l'environnement.
 5. **Langue** : code en anglais, documentation en français ?
 
