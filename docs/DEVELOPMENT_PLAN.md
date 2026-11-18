@@ -181,6 +181,7 @@ Un seul paquet Python (`backend/`), plusieurs points d'entrée exécutés dans d
 - Position Manager : prises de profit, stop, trailing, stagnation, durée max, sorties de sécurité. Tout est évalué sur le prix de vente exécutable.
 - **Étiquetage des issues :** pour chaque token qui passe la sécurité, on enregistre le prix max et min et l'état (gradué ou mort) à 5, 15, 30 et 60 minutes, qu'il ait été « acheté » ou non. On peut ainsi tester d'autres règles hors ligne sur tous les candidats, sans attendre de nouveaux trades.
 - *Sortie :* les trois stratégies tournent 7 jours sans erreur ; PnL vérifié à la main sur un échantillon de trades.
+- *Réalisé (18/11/2026, code et tests ; les 7 jours restent à faire sur la machine d'exécution) :* moteur événementiel reproductible, exécution simulée prudente, Risk Manager, kill switch persistant, étiquetage des issues (voir `docs/TRADING_STRATEGY.md`). La stratégie B exige des cotations Jupiter (clé gratuite) : sans elle, elle ne trade pas. Fenêtre de suivi des tokens portée à 90 min pour couvrir l'étiquette à 60 min.
 
 **M5 — Rapport de mesure et rejeu**
 - Rapport (ligne de commande + HTML statique) :

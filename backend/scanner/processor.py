@@ -274,11 +274,11 @@ class IngestProcessor:
 
     # --- periodic maintenance ------------------------------------------------------------
 
-    def tick(self, now: datetime, source: str) -> list[str]:
+    def tick(self, now: datetime, source: str, keep: frozenset[str] = frozenset()) -> list[str]:
         """Expire tracked tokens and check feed staleness. Returns mints to unsubscribe."""
         self.monitor.check(now)
         self._collect_gaps(source)
-        expired = self.registry.expire(now)
+        expired = self.registry.expire(now, keep)
         for mint in [m for m in self._mints if m not in self.registry]:
             del self._mints[mint]  # bounded memory: only tracked tokens keep counters
         return expired

@@ -46,6 +46,7 @@ Git ouvrira une fenêtre de connexion GitHub la première fois.
 |---|---|---|
 | **PumpPortal** | pumpportal.fun, section API / clé | La clé est liée à un wallet. Utiliser un **wallet jetable** avec 0,02 SOL, jamais un wallet qui servira au trading. |
 | **Helius** | dashboard.helius.dev | Offre gratuite. Copier la clé API. |
+| **Jupiter** (recommandé) | Portail développeur Jupiter | Clé gratuite. Cotations seulement, aucune transaction. Nécessaire à la stratégie B. |
 | **Telegram** (optionnel) | Dans Telegram : `@BotFather` → `/newbot` | Donne le *token*. Envoyer ensuite un message à votre bot, puis ouvrir `https://api.telegram.org/bot<TOKEN>/getUpdates` dans un navigateur pour lire votre `chat.id`. |
 | **healthchecks.io** (optionnel) | healthchecks.io, créer un check | Période 1 min, délai de grâce 5 min. Copier l'URL de ping. Vous serez prévenu si le PC s'éteint ou si le flux s'arrête. |
 
@@ -68,7 +69,7 @@ Ce fichier contient vos secrets : il n'est jamais envoyé sur GitHub (`.gitignor
 
 ```powershell
 docker compose build
-docker compose run --rm --no-deps app python -m backend.scanner.probe --seconds 60 --onchain 3
+docker compose run --rm --no-deps app python -m backend.scanner.probe --seconds 60 --onchain 3 --jupiter
 ```
 
 Le résultat affiche le nombre de messages reçus par type, les noms des champs vus, et le décodage on-chain de 3 nouveaux tokens (environ 6 crédits Helius). Il ne contient aucun secret : **envoyez-le-moi**. Il permet de vérifier que le format réel des messages correspond à ce que le code attend. La documentation PumpPortal n'était pas accessible depuis l'environnement de développement.
@@ -100,6 +101,8 @@ Puis ouvrir `http://127.0.0.1:8000/health/ready` dans un navigateur :
 | Redémarrer | `docker compose up -d` |
 | Mettre à jour le code | `git pull` puis `docker compose up -d --build` |
 | Statistiques horaires | `docker compose exec postgres psql -U desk -d desk -c "select created_at, payload from system_events where event_type='ingest_stats' order by id desc limit 3"` |
+| Kill switch (bloquer les entrées) | `docker compose exec app python -m backend.risk.kill_switch on --reason "..."` (puis `off`) |
+| Positions paper | `docker compose exec postgres psql -U desk -d desk -c "select strategy, exit_reason, realized_pnl_lamports from positions order by id desc limit 20"` |
 | Coupures enregistrées | `docker compose exec postgres psql -U desk -d desk -c "select * from feed_gaps order by id desc limit 10"` |
 
 **Ne jamais lancer `docker compose down -v`** : l'option `-v` efface la base de données, donc toutes les données enregistrées.

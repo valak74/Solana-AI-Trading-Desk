@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import random
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -11,6 +12,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.analysis.engine import TokenAnalyzer
+from backend.analysis.outcomes import OutcomeLabeler
 from backend.analysis.repository import AnalysisRepository
 from backend.analysis.service import AnalysisService
 from backend.api.health import router as health_router
@@ -18,17 +20,24 @@ from backend.config import Settings, get_settings
 from backend.database.enums import Severity
 from backend.database.session import create_engine, create_session_factory
 from backend.database.system_events import record_system_event
+from backend.execution.paper import PaperExecutor
 from backend.integrations.helius import CreditBudget, HeliusRpc
+from backend.integrations.jupiter import JupiterClient
 from backend.integrations.rugcheck import RugCheckClient
 from backend.monitoring.alerts import Alerter, LogOnlyAlerter, TelegramAlerter
 from backend.monitoring.heartbeat import Heartbeat
 from backend.monitoring.logging import configure_logging, get_logger
 from backend.monitoring.readiness import ReadinessProbe, database_checks, expected_schema_head
+from backend.risk.manager import RiskManager
 from backend.scanner.providers.pumpportal import PumpPortalProvider
 from backend.scanner.service import IngestService
 from backend.scanner.store import IngestStore
 from backend.scanner.verifier import SampleVerifier
 from backend.security.config import AnalysisConfig
+from backend.trading.config import PaperTradingConfig
+from backend.trading.engine import PaperTradingEngine
+from backend.trading.repository import SqlTradingStore
+from backend.trading.service import PaperTradingService
 
 log = get_logger(__name__)
 
@@ -96,6 +105,29 @@ def build_analysis(
     )
 
 
+def build_paper_trading(
+    settings: Settings,
+    factory: async_sessionmaker[AsyncSession],
+    client: httpx.AsyncClient,
+    ingest: IngestService,
+) -> PaperTradingService:
+    config = PaperTradingConfig()
+    jupiter = None
+    if settings.jupiter_api_key is not None:
+        jupiter = JupiterClient(
+            client, settings.jupiter_api_key.get_secret_value(), settings.jupiter_base_url
+        )
+    service = PaperTradingService(factory, tick_interval=settings.paper_tick_seconds)
+    risk = RiskManager(config.risk, service.kill_switch_active, lambda _now: ingest.feed_ready())
+    executor = PaperExecutor(
+        config.execution,
+        random.Random(f"{config.seed}:execution"),  # noqa: S311 - simulation only
+        jupiter,
+    )
+    service.attach(PaperTradingEngine(config, executor, risk, SqlTradingStore(factory)))
+    return service
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, settings.log_format, settings.secret_values())
@@ -110,11 +142,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rpc = build_rpc(settings, client)
         ingest: IngestService | None = None
         analysis: AnalysisService | None = None
+        paper: PaperTradingService | None = None
         if settings.ingest_enabled:
             ingest = build_ingest(settings, factory, alerter, rpc)
             service = ingest
             if settings.analysis_enabled and rpc is not None:
                 analysis = build_analysis(settings, factory, client, alerter, rpc)
+            if settings.paper_trading_enabled:
+                paper = build_paper_trading(settings, factory, client, ingest)
+                ingest.listeners.append(paper.on_raw)
+                ingest.pinned = paper.pinned_mints
+                if analysis is not None:
+                    analysis.on_result = paper.on_analysis
 
             async def feed_ready() -> bool:
                 return service.feed_ready()
@@ -124,6 +163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.readiness = probe
         app.state.ingest = ingest
         app.state.analysis = analysis
+        app.state.paper = paper
 
         tasks: list[asyncio.Task[None]] = []
         if settings.healthchecks_ping_url is not None:
@@ -137,11 +177,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "env": settings.app_env,
             "ingest_enabled": settings.ingest_enabled,
             "analysis_enabled": analysis is not None,
+            "paper_trading_enabled": paper is not None,
         }
         if ingest is not None:
             await ingest.start()
+        if paper is not None:
+            await paper.start()
+            tasks.append(asyncio.create_task(paper.run()))
         if analysis is not None:
             tasks.append(asyncio.create_task(analysis.run()))
+        if ingest is not None:
+            tasks.append(asyncio.create_task(OutcomeLabeler(factory).run()))
         await record_system_event(factory, "service_started", Severity.INFO, payload)
         await alerter.send(
             Severity.INFO, "Trading desk démarré", f"mode={payload['execution_mode']}"

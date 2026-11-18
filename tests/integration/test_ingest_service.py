@@ -138,4 +138,6 @@ async def test_app_starts_with_analysis_enabled(database_url: str) -> None:
     async with app.router.lifespan_context(app):
         analysis = app.state.analysis
         assert analysis is not None
+        assert app.state.paper is not None  # paper trading wired to the live stream
+        assert analysis.on_result == app.state.paper.on_analysis
         await wait_until(lambda: analysis.analyzed == 0 and analysis._config_id is not None)

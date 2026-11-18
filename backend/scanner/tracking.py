@@ -72,9 +72,12 @@ class TrackingRegistry:
         self._tokens[mint] = TrackedToken(mint, now, self._migrated_window, migrated=True)
         return True
 
-    def expire(self, now: datetime) -> list[str]:
-        """Drop tokens whose window ended or that stayed inactive; returns mints to unsubscribe."""
-        expired = [m for m, t in self._tokens.items() if self._is_expired(t, now)]
+    def expire(self, now: datetime, keep: frozenset[str] = frozenset()) -> list[str]:
+        """Drop tokens whose window ended or that stayed inactive; returns mints to unsubscribe.
+
+        Mints in ``keep`` (e.g. open paper positions) are never dropped.
+        """
+        expired = [m for m, t in self._tokens.items() if m not in keep and self._is_expired(t, now)]
         for mint in expired:
             del self._tokens[mint]
         return expired

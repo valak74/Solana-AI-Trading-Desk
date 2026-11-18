@@ -55,7 +55,8 @@ class Settings(BaseSettings):
     pumpportal_api_key: SecretStr | None = None
     tracked_pools: tuple[str, ...] = ("pump",)
 
-    track_window_minutes: float = Field(default=60.0, gt=0)
+    # 90 min: covers the 60-min outcome label of a token first analysed at 30 min of age.
+    track_window_minutes: float = Field(default=90.0, gt=0)
     track_migrated_window_minutes: float = Field(default=360.0, gt=0)
     track_min_trades: int = Field(default=5, ge=0)
     track_min_trades_window_minutes: float = Field(default=10.0, gt=0)
@@ -80,6 +81,12 @@ class Settings(BaseSettings):
     analysis_min_trades: int = Field(default=15, ge=0)
     analysis_batch: int = Field(default=10, ge=1)
     rugcheck_enabled: bool = False
+
+    # --- Paper trading (step M4) ---------------------------------------------------------
+    paper_trading_enabled: bool = True  # effective only with ingestion enabled
+    paper_tick_seconds: float = Field(default=2.0, gt=0)
+    jupiter_api_key: SecretStr | None = None  # quotes only; needed for strategy B
+    jupiter_base_url: str = "https://api.jup.ag/swap/v2"
 
     @field_validator("execution_mode")
     @classmethod
@@ -111,6 +118,7 @@ class Settings(BaseSettings):
             self.healthchecks_ping_url,
             self.pumpportal_api_key,
             self.helius_api_key,
+            self.jupiter_api_key,
         ]
         return [s.get_secret_value() for s in secrets if s is not None and s.get_secret_value()]
 

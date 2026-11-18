@@ -9,6 +9,10 @@ any server control messages. It validates the message format assumed by the pars
 With ``--onchain N`` (needs HELIUS_API_KEY, about 2 credits per token), it also reads the mint
 and bonding-curve accounts of N new tokens and prints how they decode, which validates the
 on-chain layouts assumed by the security analysis.
+
+With ``--jupiter`` (needs JUPITER_API_KEY), it requests two quotes: SOL -> USDC, to validate the
+response format, and SOL -> one freshly created token, to learn whether Jupiter routes tokens
+that are still on the pump.fun bonding curve.
 """
 
 import argparse
@@ -22,6 +26,7 @@ import httpx
 from backend.blockchain.accounts import AccountDecodeError, parse_bonding_curve, parse_mint
 from backend.config import Settings, get_settings
 from backend.integrations.helius import CreditBudget, HeliusRpc, RpcError
+from backend.integrations.jupiter import WSOL_MINT, JupiterClient
 from backend.monitoring.logging import configure_logging
 from backend.scanner.messages import MessageError, event_type_of, parse_message
 from backend.scanner.providers.base import ConnectionStatus, RawMessage
@@ -67,7 +72,50 @@ async def decode_onchain(settings: Settings, tokens: list[tuple[str, str]]) -> l
     return results
 
 
-async def probe(seconds: float, track_first: int, onchain: int = 0) -> dict[str, Any]:
+USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+
+async def check_jupiter(settings: Settings, fresh_mint: str | None) -> dict[str, Any]:
+    if settings.jupiter_api_key is None:
+        return {"error": "JUPITER_API_KEY not set"}
+    report: dict[str, Any] = {}
+    async with httpx.AsyncClient(timeout=15) as client:
+        key = settings.jupiter_api_key.get_secret_value()
+        params = {"inputMint": WSOL_MINT, "outputMint": USDC_MINT, "amount": "10000000"}
+        try:
+            raw = await client.get(
+                f"{settings.jupiter_base_url.rstrip('/')}/order",
+                params=params,
+                headers={"x-api-key": key},
+            )
+            report["usdc_http_status"] = raw.status_code
+            body = (
+                raw.json()
+                if raw.headers.get("content-type", "").startswith("application/json")
+                else None
+            )
+            report["usdc_response_fields"] = sorted(body) if isinstance(body, dict) else None
+        except (httpx.HTTPError, ValueError) as exc:
+            report["usdc_error"] = type(exc).__name__
+        jupiter = JupiterClient(client, key, settings.jupiter_base_url)
+        usdc = await jupiter.quote(WSOL_MINT, USDC_MINT, 10_000_000)
+        report["usdc_parsed"] = (
+            None if usdc is None else {"out_amount": usdc.out_amount, "fee_bps": usdc.fee_bps}
+        )
+        if fresh_mint is not None:
+            fresh = await jupiter.buy_quote(fresh_mint, 10_000_000)
+            report["bonding_curve_token_routable"] = fresh is not None
+            if fresh is not None:
+                report["bonding_curve_quote"] = {
+                    "out_amount": fresh.out_amount,
+                    "fee_bps": fresh.fee_bps,
+                }
+    return report
+
+
+async def probe(
+    seconds: float, track_first: int, onchain: int = 0, jupiter: bool = False
+) -> dict[str, Any]:
     settings = get_settings()
     key = settings.pumpportal_api_key.get_secret_value() if settings.pumpportal_api_key else None
     provider = PumpPortalProvider(settings.pumpportal_ws_url, key)
@@ -118,6 +166,9 @@ async def probe(seconds: float, track_first: int, onchain: int = 0) -> dict[str,
         "control_messages": controls[:10],
         "tokens_tracked_for_trades": tracked,
         "onchain_decoding": await decode_onchain(settings, created[:onchain]) if onchain else [],
+        "jupiter": await check_jupiter(settings, created[0][0] if created else None)
+        if jupiter
+        else {},
     }
 
 
@@ -126,10 +177,11 @@ def main() -> None:
     parser.add_argument("--seconds", type=float, default=60.0)
     parser.add_argument("--track", type=int, default=5, help="new tokens to follow for trades")
     parser.add_argument("--onchain", type=int, default=0, help="new tokens to decode on-chain")
+    parser.add_argument("--jupiter", action="store_true", help="validate Jupiter quotes")
     args = parser.parse_args()
     settings = get_settings()
     configure_logging("WARNING", "console", settings.secret_values())
-    report = asyncio.run(probe(args.seconds, args.track, args.onchain))
+    report = asyncio.run(probe(args.seconds, args.track, args.onchain, args.jupiter))
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 

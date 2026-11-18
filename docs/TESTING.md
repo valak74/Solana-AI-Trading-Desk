@@ -62,6 +62,18 @@ Sans `TEST_DATABASE_URL`, ils sont ignorés (signalés « skipped »).
 | Budget de crédits | Débit par méthode, remise à zéro quotidienne, **aucune requête envoyée** une fois le budget atteint |
 | Service (intégration) | Analyse enregistrée et traçable (version des règles, indicateurs, décisions des agents) ; fenêtre d'âge et activité minimale respectées ; pas de réanalyse trop rapprochée ; **lecture des trades sans jamais regarder le futur** ; budget épuisé signalé une seule fois |
 
+## Couverture ajoutée à l'étape M4
+
+| Domaine | Ce qui est vérifié |
+|---|---|
+| Marché | Réserves, flux acheteurs/vendeurs, migration (courbe plus exécutable), oubli des tokens inactifs |
+| Exécution simulée | Frais et décotes appliqués exactement ; **pire prix retenu** ; échec simulé = frais réseau payés ; pas de prix → aucun frais ; valorisation au prix exécutable ; impact estimé par l'agrégateur |
+| Risk Manager | Chaque motif de veto (kill switch, flux, pause, cooldown, positions max, entrées max, impact) ; **taille limitée par le budget de perte, positions ouvertes comptées perdues** ; pause après 3 pertes |
+| Sorties | Stop, TP1, TP2, trailing, stagnation, durée max, sorties de sécurité prioritaires, pas de double vente |
+| Stratégies | Conditions de A ; témoin C reproductible (~10 %) ; B exige chute, rebond, acheteurs et une analyse sans risque critique |
+| Moteur | Cycle complet TP1 → TP2 → trailing avec **PnL vérifié à l'unité** (cash = capital + PnL) ; stop exécuté au prix **après** la latence ; vente du créateur ; kill switch ; achat raté = coût enregistré ; token gradué sans cotation ; reprise après redémarrage ; **rejeu déterministe** ; instantanés de portefeuille |
+| Base de données (intégration) | Position, trades (rent payé puis remboursé), décisions et instantané persistés ; PnL = ventes nettes − coût ; redémarrage → position « interrompue » au PnL vide et capital reconstruit ; kill switch persistant, **illisible = actif** ; étiquettes d'issues (fenêtres, rendements, coupures) idempotentes |
+
 ## Vérifications manuelles réalisées (17/11/2026, Docker Compose)
 
 - `docker compose up` : migration appliquée, conteneur `healthy`, `/health/ready` = 200.

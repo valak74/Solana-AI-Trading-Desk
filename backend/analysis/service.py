@@ -2,12 +2,12 @@
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.analysis.engine import TokenAnalyzer
+from backend.analysis.engine import AnalysisResult, AnalysisTarget, TokenAnalyzer
 from backend.analysis.flows import compute_trade_flow, load_trades
 from backend.analysis.repository import AnalysisRepository
 from backend.database.enums import Severity
@@ -40,7 +40,9 @@ class AnalysisService:
         min_trades: int = 15,
         batch: int = 10,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        on_result: Callable[[AnalysisTarget, AnalysisResult], Awaitable[None]] | None = None,
     ) -> None:
+        self.on_result = on_result
         self._analyzer = analyzer
         self._repo = repository
         self._factory = factory
@@ -102,6 +104,11 @@ class AnalysisService:
             duration_ms = int((time.monotonic() - started) * 1000)
             await self._repo.save(target, result, self._config_id, duration_ms)
             done += 1
+            if self.on_result is not None:
+                try:
+                    await self.on_result(target, result)
+                except Exception as exc:  # the strategist must not stop the analysis loop
+                    log.error("analysis_listener_failed", error_type=type(exc).__name__)
         self.analyzed += done
         return done
 

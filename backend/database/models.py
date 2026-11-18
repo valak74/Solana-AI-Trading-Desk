@@ -230,6 +230,7 @@ class Position(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     token_id: Mapped[int] = mapped_column(ForeignKey("tokens.id"), index=True)
     strategy: Mapped[str] = mapped_column(String(64))
+    run_id: Mapped[str] = mapped_column(String(64), default="live")  # "live" or a replay id
     config_version_id: Mapped[int | None] = mapped_column(ForeignKey("config_versions.id"))
     execution_mode: Mapped[ExecutionModeDb] = mapped_column(
         str_enum(ExecutionModeDb, "position_execution_mode")
@@ -278,6 +279,7 @@ class Trade(Base):
     network_fee_lamports: Mapped[int] = mapped_column(BigInteger, default=0)  # base+priority+tip
     rent_lamports: Mapped[int] = mapped_column(BigInteger, default=0)  # >0 paid, <0 refunded
     slippage_bps: Mapped[Decimal | None] = mapped_column(RATIO)
+    fill_model: Mapped[str | None] = mapped_column(String(32))  # curve / jupiter / worst_of
     transaction_signature: Mapped[str | None] = mapped_column(SIGNATURE, unique=True)
     failure_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _utcnow_column()
@@ -298,6 +300,7 @@ class PortfolioSnapshot(Base):
         str_enum(ExecutionModeDb, "portfolio_execution_mode")
     )
     strategy: Mapped[str | None] = mapped_column(String(64))  # NULL = all strategies
+    run_id: Mapped[str] = mapped_column(String(64), default="live")
     total_equity_lamports: Mapped[int] = mapped_column(BigInteger)
     available_lamports: Mapped[int] = mapped_column(BigInteger)
     reserved_lamports: Mapped[int] = mapped_column(BigInteger)
@@ -356,3 +359,42 @@ class VerificationSample(Base):
     block_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     detection_latency_ms: Mapped[int | None] = mapped_column(BigInteger)
     error: Mapped[str | None] = mapped_column(String(256))
+
+
+class KillSwitchState(Base):
+    """Single-row persistent kill switch: when active, no new position may be opened."""
+
+    __tablename__ = "kill_switch_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = _utcnow_column()
+
+    __table_args__ = (CheckConstraint("id = 1", name="singleton"),)
+
+
+class TokenOutcome(Base):
+    """What happened to an analysed token after its first analysis (labels for evaluation)."""
+
+    __tablename__ = "token_outcomes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    token_id: Mapped[int] = mapped_column(ForeignKey("tokens.id"))
+    horizon_minutes: Mapped[int] = mapped_column(Integer)
+    reference_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reference_price: Mapped[Decimal | None] = mapped_column(PRICE)
+    max_price: Mapped[Decimal | None] = mapped_column(PRICE)
+    min_price: Mapped[Decimal | None] = mapped_column(PRICE)
+    last_price: Mapped[Decimal | None] = mapped_column(PRICE)
+    max_return: Mapped[Decimal | None] = mapped_column(RATIO)
+    min_return: Mapped[Decimal | None] = mapped_column(RATIO)
+    last_return: Mapped[Decimal | None] = mapped_column(RATIO)
+    graduated: Mapped[bool] = mapped_column(Boolean, default=False)
+    snapshots: Mapped[int] = mapped_column(Integer, default=0)
+    gap_overlap: Mapped[bool] = mapped_column(Boolean, default=False)
+    computed_at: Mapped[datetime] = _utcnow_column()
+
+    __table_args__ = (
+        Index("uq_token_outcomes_token_horizon", "token_id", "horizon_minutes", unique=True),
+    )

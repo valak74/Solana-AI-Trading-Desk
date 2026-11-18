@@ -7,7 +7,7 @@ kept and retried (bounded memory); overflow is counted and reported, never silen
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -20,7 +20,7 @@ from backend.monitoring.alerts import Alerter
 from backend.monitoring.logging import get_logger
 from backend.scanner.feed_monitor import FeedMonitor, GapClosed, GapOpened
 from backend.scanner.processor import IngestProcessor, WriteBatch
-from backend.scanner.providers.base import MarketDataProvider
+from backend.scanner.providers.base import MarketDataProvider, ProviderItem
 from backend.scanner.store import IngestStore
 from backend.scanner.tracking import TrackingRegistry
 from backend.scanner.verifier import SampleVerifier
@@ -86,6 +86,9 @@ class IngestService:
         self._db_failing = False
         self._started_at = clock()
         self._tasks: list[asyncio.Task[Any]] = []
+        # Downstream consumers of the live stream (paper trading) and mints they need kept.
+        self.listeners: list[Callable[[ProviderItem], Awaitable[None]]] = []
+        self.pinned: Callable[[], set[str]] = set
 
     @property
     def processor(self) -> IngestProcessor:
@@ -134,6 +137,11 @@ class IngestService:
                 await self._provider.track(result.track)
             if result.verify is not None and self._verifier is not None:
                 self._verifier.submit(result.verify)
+            for listener in self.listeners:
+                try:
+                    await listener(item)
+                except Exception as exc:  # a consumer bug must never stop the recording
+                    log.error("ingest_listener_failed", error_type=type(exc).__name__)
 
     async def _flush_loop(self) -> None:
         while True:
@@ -193,7 +201,11 @@ class IngestService:
     async def _tick_loop(self) -> None:
         while True:
             await asyncio.sleep(self._tick_interval)
-            expired = self.processor.tick(self._clock(), self._provider.name)
+            keep = frozenset(self.pinned())
+            expired = self.processor.tick(self._clock(), self._provider.name, keep)
+            missing = [m for m in keep if m not in self.processor.registry]
+            if missing:  # e.g. a graduated token held by a strategy: keep its trades coming
+                await self._provider.track(missing)
             if expired:
                 await self._provider.untrack(expired)
 
